@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Eksplorasi 3D Organ Pencernaan Manusia</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            background: radial-gradient(circle at 50% 42%, #263348 0%, #111827 65%, #090d16 100%);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* Custom scrollbar for info panel */
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 9999px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.35);
+            border-radius: 9999px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(148, 163, 184, 0.55);
+        }
+        /* Anatomical Numbered Pin Badge (inspired by reference manikin) */
+        .organ-pin {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            width: 24px;
+            height: 24px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.94);
+            color: #0f172a;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(15, 23, 42, 0.35);
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s, color 0.2s, opacity 0.2s;
+            z-index: 10;
+            pointer-events: auto;
+        }
+        .organ-pin:hover, .organ-pin.active {
+            transform: translate(-50%, -50%) scale(1.28);
+            background: #38bdf8;
+            color: #0f172a;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45), 0 4px 12px rgba(0, 0, 0, 0.6);
+            z-index: 15;
+        }
+        .organ-pin.occluded {
+            opacity: 0.35;
+        }
+    </style>
+</head>
+<body class="text-slate-100 antialiased">
+
+    <!-- 3D Viewport Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Projected 3D Anatomical Number Pins Layer -->
+    <div id="pins-layer" class="fixed inset-0 pointer-events-none z-10 overflow-hidden"></div>
+
+    <!-- Hover Tooltip -->
+    <div id="hover-tooltip" class="fixed pointer-events-none z-30 hidden px-3 py-1.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 text-xs font-medium text-white shadow-xl transition-opacity duration-150">
+        <span id="tooltip-num" class="inline-block px-1.5 py-0.5 mr-1.5 rounded-md bg-sky-500/20 text-sky-300 font-bold"></span>
+        <span id="tooltip-name">Organ</span>
+    </div>
+
+    <!-- Top Header Bar -->
+    <header class="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <!-- Brand / Title -->
+        <div class="pointer-events-auto flex items-center gap-3 bg-slate-900/80 backdrop-blur-xl border border-slate-700/60 rounded-2xl px-3.5 py-2.5 shadow-2xl">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-500 to-amber-500 flex items-center justify-center shadow-inner shrink-0">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-sm sm:text-base font-bold tracking-tight text-white leading-tight">Anatomi Pencernaan 3D</h1>
+                <p class="text-[11px] text-slate-400 hidden sm:block">Model Manekin Interaktif • Klik organ atau pin nomor untuk eksplorasi</p>
+            </div>
+        </div>
+
+        <!-- View Mode Controls -->
+        <div class="pointer-events-auto flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-1.5 shadow-2xl overflow-x-auto max-w-full">
+            <button id="btn-mode-normal" onclick="setViewMode('normal')" class="mode-btn px-3 py-2 rounded-xl text-xs font-semibold bg-sky-500 text-slate-950 shadow transition-all whitespace-nowrap">
+                Utuh
+            </button>
+            <button id="btn-mode-exploded" onclick="setViewMode('exploded')" class="mode-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all whitespace-nowrap">
+                Bongkar Organ
+            </button>
+            <button id="btn-mode-xray" onclick="setViewMode('xray')" class="mode-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all whitespace-nowrap">
+                Transparan
+            </button>
+            <button id="btn-mode-cutaway" onclick="setViewMode('cutaway')" class="mode-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all whitespace-nowrap">
+                Potongan Dalam
+            </button>
+            <div class="w-px h-5 bg-slate-700/80 mx-0.5"></div>
+            <button id="btn-sim-flow" onclick="toggleDigestiveSim()" class="px-3 py-2 rounded-xl text-xs font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 transition-all flex items-center gap-1.5 whitespace-nowrap">
+                <span id="sim-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span id="sim-label">Simulasi Alur</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Simulation Banner (Shown when simulation is active) -->
+    <div id="sim-banner" class="fixed top-20 left-1/2 -translate-x-1/2 z-20 hidden w-[92%] max-w-md bg-slate-900/90 backdrop-blur-xl border border-amber-500/40 rounded-2xl p-3.5 shadow-2xl transition-all">
+        <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                Perjalanan Bolus Makanan
+            </span>
+            <button onclick="toggleDigestiveSim()" class="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-slate-800">Tutup</button>
+        </div>
+        <div id="sim-stage-title" class="text-sm font-bold text-white">1. Kerongkongan (Esofagus)</div>
+        <p id="sim-stage-desc" class="text-xs text-slate-300 mt-0.5 leading-relaxed">Gerakan peristaltik mendorong makanan menuju lambung.</p>
+        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+            <div id="sim-progress" class="bg-gradient-to-r from-amber-400 to-rose-500 h-full w-0 transition-all duration-150"></div>
+        </div>
+    </div>
+
+    <!-- Left Organ List Drawer (Desktop & Collapsible Mobile) -->
+    <aside id="organ-list-panel" class="fixed left-3 sm:left-4 top-20 sm:top-24 z-20 w-56 sm:w-64 bg-slate-900/80 backdrop-blur-xl border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300">
+        <div class="px-3.5 py-2.5 border-b border-slate-700/60 flex items-center justify-between cursor-pointer" onclick="toggleOrganList()">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Daftar Organ (8)</span>
+            <svg id="organ-list-chevron" class="w-4 h-4 text-slate-400 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+        </div>
+        <div id="organ-list-content" class="p-2 max-h-[42vh] sm:max-h-[55vh] overflow-y-auto custom-scroll space-y-1">
+            <!-- Populated dynamically via JS -->
+        </div>
+        <!-- Layer Visibility Quick Toggles -->
+        <div id="layer-controls" class="p-2.5 border-t border-slate-700/60 bg-slate-950/40 space-y-1.5">
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer py-1 px-1.5 rounded-lg hover:bg-slate-800/60">
+                <span>Rangka Torso & Dada</span>
+                <input type="checkbox" id="toggle-torso" checked onchange="toggleTorsoContext(this.checked)" class="accent-sky-500 w-4 h-4 rounded cursor-pointer">
+            </label>
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer py-1 px-1.5 rounded-lg hover:bg-slate-800/60">
+                <span>Pin Nomor Manikin</span>
+                <input type="checkbox" id="toggle-pins" checked onchange="togglePinsVisibility(this.checked)" class="accent-sky-500 w-4 h-4 rounded cursor-pointer">
+            </label>
+        </div>
+    </aside>
+
+    <!-- Right / Bottom Organ Detail Inspector Card -->
+    <section id="detail-panel" class="fixed right-3 left-3 sm:left-auto sm:right-4 bottom-16 sm:bottom-auto sm:top-24 z-20 sm:w-80 md:w-96 bg-slate-900/90 backdrop-blur-xl border border-slate-700/70 rounded-2xl shadow-2xl p-4 transition-all duration-300 transform translate-y-0">
+        <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <span id="detail-badge" class="w-8 h-8 rounded-xl bg-sky-500 text-slate-950 font-extrabold text-sm flex items-center justify-center shrink-0 shadow">02</span>
+                <div>
+                    <span id="detail-category" class="text-[10px] font-bold uppercase tracking-wider text-sky-400">Kelenjar Pencernaan</span>
+                    <h2 id="detail-title" class="text-base sm:text-lg font-bold text-white leading-tight">Hati (Hepar)</h2>
+                </div>
+            </div>
+            <button onclick="deselectOrgan()" class="p-2 rounded-xl bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors" title="Tutup Detail">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="mt-3 max-h-40 sm:max-h-[52vh] overflow-y-auto custom-scroll pr-1 space-y-3 text-xs sm:text-[13px] text-slate-300 leading-relaxed">
+            <p id="detail-desc">
+                Organ kelenjar terbesar dalam tubuh manusia yang terletak di bagian kanan atas rongga perut tepat di bawah diafragma.
+            </p>
+
+            <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5 space-y-1.5">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-sky-400">Struktur & Bagian Anatomi</div>
+                <div id="detail-parts" class="flex flex-wrap gap-1.5 pt-0.5">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+            
+            <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5 space-y-1.5">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Fungsi Utama</div>
+                <ul id="detail-functions" class="list-disc list-inside space-y-1 text-slate-300">
+                    <li>Menghasilkan cairan empedu untuk mengemulsi lemak.</li>
+                    <li>Menetralkan racun (detoksifikasi) dan metabolisme nutrisi.</li>
+                </ul>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-slate-800/50 rounded-xl p-2.5 border border-slate-700/40">
+                    <div class="text-[10px] text-slate-400 uppercase font-semibold">Sekresi / Enzim</div>
+                    <div id="detail-enzyme" class="text-xs font-semibold text-amber-300 mt-0.5">Cairan Empedu</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-xl p-2.5 border border-slate-700/40">
+                    <div class="text-[10px] text-slate-400 uppercase font-semibold">Posisi Anatomi</div>
+                    <div id="detail-location" class="text-xs font-semibold text-sky-300 mt-0.5">Kuadran Kanan Atas</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Bottom Camera & Quick Action Toolbar -->
+    <footer class="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-1.5 shadow-2xl">
+        <button onclick="resetCamera()" class="px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-1.5" title="Reset Sudut Kamera">
+            <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="hidden sm:inline">Reset Kamera</span>
+        </button>
+        <button id="btn-autorotate" onclick="toggleAutoRotate()" class="px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-1.5" title="Putar Otomatis">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 3v5h-5" />
+            </svg>
+            <span class="hidden sm:inline">Putar 360°</span>
+        </button>
+        <button onclick="focusDigestiveOnly()" class="px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-1.5" title="Fokus Sistem Pencernaan">
+            <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+            </svg>
+            <span class="hidden sm:inline">Fokus Perut</span>
+        </button>
+        <div class="hidden md:flex items-center gap-2 px-3 text-[11px] text-slate-400 border-l border-slate-700/80">
+            <span>Geser: Putar • Cubit/Scroll: Zoom • Klik: Info</span>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * ============================================================================
+         * DATA EDUKASI ORGAN PENCERNAAN (DISESUAIKAN DENGAN MANEKIN REFERENSI)
+         * ============================================================================
+         */
+        const ORGANS_DATA = [
+            {
+                id: 'esophagus',
+                pin: '01',
+                name: 'Kerongkongan (Esofagus)',
+                category: 'Saluran Pencernaan Atas',
+                colorHex: '#e07a7a',
+                enzyme: 'Mukus (Pelumas)',
+                location: 'Rongga Dada Posterior',
+                parts: ['Sfingter Esofagus Atas', 'Lapisan Otot Longitudinal', 'Lipatan Mukosa Internal', 'Sfingter Esofagus Bawah (Kardia)'],
+                description: 'Saluran berotot sepanjang ±25 cm dengan lapisan otot longitudinal luar, otot sirkuler dalam, serta cincin sfingter atas dan bawah yang mencegah refluks asam lambung.',
+                functions: [
+                    'Menyalurkan bolus makanan dari faring menuju lambung melalui gelombang peristaltik.',
+                    'Sfingter esofagus bawah (LES) membuka saat menelan dan menutup rapat untuk mencegah naiknya asam lambung.'
+                ],
+                pinOffset: new THREE.Vector3(0, 3.6, -0.35),
+                explodeOffset: new THREE.Vector3(0, 0.4, -0.8)
+            },
+            {
+                id: 'liver',
+                pin: '02',
+                name: 'Hati (Hepar)',
+                category: 'Kelenjar Pencernaan',
+                colorHex: '#6b1d14',
+                enzyme: 'Cairan Empedu',
+                location: 'Kuadran Kanan Atas',
+                parts: ['Lobus Kanan (Dexter)', 'Lobus Kiri (Sinister)', 'Lobus Kaudatus & Kuadratus', 'Ligamentum Falsiformis & Teres', 'Porta Hepatis (Vena Porta & Arteri)'],
+                description: 'Kelenjar terbesar dalam tubuh yang terbagi menjadi lobus kanan, lobus kiri, lobus kaudatus, dan lobus kuadratus, dilengkapi ligamentum falsiformis serta gerbang pembuluh darah Porta Hepatis di permukaan bawahnya.',
+                functions: [
+                    'Memproduksi 800–1.000 ml cairan empedu setiap hari melalui lobulus-lobulus hepatik untuk mengemulsikan lemak.',
+                    'Menerima darah kaya nutrisi dari usus melalui Vena Porta Hepatis untuk metabolisme karbohidrat, protein, dan detoksifikasi.'
+                ],
+                pinOffset: new THREE.Vector3(-1.05, 1.55, 0.95),
+                explodeOffset: new THREE.Vector3(-1.35, 0.55, 1.45)
+            },
+            {
+                id: 'gallbladder',
+                pin: '03',
+                name: 'Kantung & Saluran Empedu',
+                category: 'Sistem Biliaris',
+                colorHex: '#3f8f38',
+                enzyme: 'Garam Empedu Terkonsentrasi',
+                location: 'Bawah Lobus Kanan Hati',
+                parts: ['Fundus Kantung Empedu', 'Korpus & Kollum', 'Duktus Sistikus', 'Duktus Hepatikus Komunis', 'Duktus Koledokus'],
+                description: 'Terdiri atas fundus, korpus, dan leher (kollum) kantung empedu yang terhubung melalui duktus sistikus dan duktus hepatikus komunis membentuk duktus koledokus menuju duodenum.',
+                functions: [
+                    'Menyimpan dan memekatkan cairan empedu hingga 5–10 kali lipat dengan menyerap air dan elektrolit.',
+                    'Berkontraksi saat hormon kolesistokinin (CCK) dilepaskan, mengalirkan empedu melalui duktus koledokus ke duodenum.'
+                ],
+                pinOffset: new THREE.Vector3(-0.95, 0.65, 0.85),
+                explodeOffset: new THREE.Vector3(-1.1, -0.25, 1.9)
+            },
+            {
+                id: 'stomach',
+                pin: '04',
+                name: 'Lambung (Gaster)',
+                category: 'Saluran Pencernaan Tengah',
+                colorHex: '#f5c2ad',
+                enzyme: 'Pepsin, Renin, Asam Klorida (HCl)',
+                location: 'Kuadran Kiri Atas',
+                parts: ['Kardia & Fundus', 'Korpus (Badan Lambung)', 'Kurvatura Mayor & Minor', 'Antrum & Sfingter Pilorus', 'Ruga Lambung (Lipatan Dalam)', 'Arteri Gastrika & Gastroepiploika'],
+                description: 'Kantong berotot berbentuk huruf J dengan lengkung besar (kurvatura mayor) dan lengkung kecil (kurvatura minor), kaya pembuluh darah gastrika, serta memiliki lipatan dalam (ruga) yang mengembang saat terisi makanan.',
+                functions: [
+                    'Mencerna makanan secara mekanik menggunakan tiga lapis otot polos (longitudinal, sirkuler, oblik) hingga menjadi kimus.',
+                    'Mengatur pengosongan kimus sedikit demi sedikit ke usus dua belas jari melalui cincin otot Sfingter Pilorus.'
+                ],
+                pinOffset: new THREE.Vector3(0.95, 1.25, 0.85),
+                explodeOffset: new THREE.Vector3(1.35, 0.35, 1.45)
+            },
+            {
+                id: 'pancreas',
+                pin: '05',
+                name: 'Pankreas, Duodenum & Limpa',
+                category: 'Kelenjar & Usus Dua Belas Jari',
+                colorHex: '#e8a864',
+                enzyme: 'Amilase, Lipase, Tripsin, Bikarbonat',
+                location: 'Retroperitoneal (Belakang Lambung)',
+                parts: ['Kaput, Kollum, Korpus & Kauda Pankreas', 'Duktus Pankreatikus (Wirsung)', 'Duodenum (Usus 12 Jari)', 'Ampula Vater', 'Limpa (Lien)'],
+                description: 'Kelenjar berstruktur lobular asinar yang terbagi menjadi kepala (kaput), leher, badan, dan ekor (kauda) hingga menyentuh limpa, dilengkapi saluran pankreas utama yang bermuara bersama saluran empedu di duodenum.',
+                functions: [
+                    'Menyekresikan getah pankreas alkali (natrium bikarbonat) serta enzim amilase, lipase, dan tripsin ke dalam duodenum.',
+                    'Menjalankan fungsi endokrin melalui Pulau Langerhans untuk menghasilkan hormon insulin dan glukagon.'
+                ],
+                pinOffset: new THREE.Vector3(0.25, 0.35, 0.15),
+                explodeOffset: new THREE.Vector3(0.15, -0.1, 0.25)
+            },
+            {
+                id: 'small_intestine',
+                pin: '06',
+                name: 'Usus Halus (Intestinum Tenue)',
+                category: 'Saluran Penyerapan Utama',
+                colorHex: '#f3b293',
+                enzyme: 'Maltase, Laktase, Sukrase, Erepsin',
+                location: 'Tengah Rongga Perut',
+                parts: ['Jejunum (Usus Kosong)', 'Ileum (Usus Penyerapan)', 'Plika Sirkularis (Lipatan Cincin)', 'Mesenterium & Vasa Rekta', 'Katup Ileosekal'],
+                description: 'Saluran berlipat sepanjang ±6 meter yang ditopang oleh kipas jaringan mesenterium dan lengkung pembuluh darah vasa rekta, dengan lipatan mukosa sirkuler (plika sirkularis) dan jutaan vili penyerap.',
+                functions: [
+                    'Memperluas permukaan penyerapan hingga ratusan kali lipat melalui plika sirkularis, vili, dan mikrovili.',
+                    'Menyerap glukosa, asam amino, asam lemak, gliserol, air, dan vitamin ke pembuluh darah mesenterika dan lakteal.'
+                ],
+                pinOffset: new THREE.Vector3(0.0, -1.15, 1.05),
+                explodeOffset: new THREE.Vector3(0.0, -0.35, 2.2)
+            },
+            {
+                id: 'large_intestine',
+                pin: '07',
+                name: 'Usus Besar (Kolon)',
+                category: 'Saluran Pencernaan Akhir',
+                colorHex: '#8d8c8a',
+                enzyme: 'Fermentasi Flora Usus',
+                location: 'Mengelilingi Rongga Perut',
+                parts: ['Kolon Asendens & Fleksura Hepatika', 'Kolon Transversum', 'Fleksura Splenika & Kolon Desendens', 'Kolon Sigmoid', 'Haustra & 3 Taeniae Coli', 'Appendices Epiploicae'],
+                description: 'Saluran berdiameter besar dengan kantong bersegmen (haustra), tiga pita otot memanjang (taeniae coli), serta kantong lemak kecil (appendices epiploicae) yang membingkai usus halus.',
+                functions: [
+                    'Menyerap kembali ±90% sisa air dan elektrolit untuk mengubah kimus cair menjadi feses padat.',
+                    'Memfermentasi serat sisa melalui mikrobiota usus dan menghasilkan vitamin K serta vitamin B kompleks.'
+                ],
+                pinOffset: new THREE.Vector3(-0.35, -0.15, 1.15),
+                explodeOffset: new THREE.Vector3(0.0, -0.15, 0.95)
+            },
+            {
+                id: 'appendix_rectum',
+                pin: '08',
+                name: 'Sekum, Apendiks & Rektum',
+                category: 'Ujung Awal & Akhir Kolon',
+                colorHex: '#767472',
+                enzyme: 'Mukus Pelumas Feses',
+                location: 'Perut Kanan Bawah & Panggul',
+                parts: ['Sekum (Kantung Awal)', 'Katup Ileosekal', 'Apendiks Vermiformis & Mesoapendiks', 'Rektum & Katup Houston', 'Sfingter Ani Internus & Eksternus'],
+                description: 'Mencakup kantung sekum dengan katup ileosekal dan umbai cacing (apendiks) di kuadran kanan bawah, serta rektum berlipat (katup Houston) dan cincin otot sfingter ani di dasar panggul.',
+                functions: [
+                    'Katup ileosekal mencegah aliran balik isi kolon menuju ileum usus halus.',
+                    'Rektum menampung feses sementara sebelum dikeluarkan secara terkendali melalui relaksasi sfingter ani.'
+                ],
+                pinOffset: new THREE.Vector3(-1.35, -2.15, 0.65),
+                explodeOffset: new THREE.Vector3(-0.65, -0.55, 0.85)
+            }
+        ];
+
+        /**
+         * ============================================================================
+         * GLOBAL THREE.JS STATE & INTERACTION VARIABLES
+         * ============================================================================
+         */
+        let scene, camera, renderer;
+        let mainGroup, digestiveGroup, torsoGroup;
+        let organMeshes = {};      // Map id -> THREE.Group / Mesh
+        let organMaterials = {};   // Map id -> Array of materials for highlight/xray
+        let pinElements = {};      // Map id -> DOM Element
+        let raycaster, mouse;
+        let clickableMeshes = [];
+
+        // Camera spherical orbit state
+        let targetSpherical = { radius: 13.5, theta: 0.08, phi: 1.48 };
+        let currentSpherical = { radius: 13.5, theta: 0.08, phi: 1.48 };
+        let targetLookAt = new THREE.Vector3(0, 0.25, 0);
+        let currentLookAt = new THREE.Vector3(0, 0.25, 0);
+
+        // Pointer interaction state
+        let isDragging = false;
+        let isPanning = false;
+        let prevPointer = { x: 0, y: 0 };
+        let pointerDownPos = { x: 0, y: 0 };
+        let initialPinchDist = null;
+        let initialPinchRadius = null;
+
+        // App state
+        let selectedOrganId = 'liver';
+        let hoveredOrganId = null;
+        let currentViewMode = 'normal'; // 'normal' | 'exploded' | 'xray'
+        let explodeFactor = 0;
+        let targetExplodeFactor = 0;
+        let autoRotate = false;
+        let showPins = true;
+        let showTorso = true;
+        let organListExpanded = true;
+
+        // Digestive simulation state
+        let simActive = false;
+        let simProgress = 0; // 0 to 1
+        let bolusMesh = null;
+        let simCurve = null;
+
+        /**
+         * ============================================================================
+         * PROCEDURAL CANVAS TEXTURE GENERATORS (NO EXTERNAL IMAGE URLS)
+         * ============================================================================
+         */
+        function createOrganicTexture(baseColorHex, noiseColorHex, striation = false, scale = 1) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = baseColorHex;
+            ctx.fillRect(0, 0, 512, 512);
+
+            if (striation) {
+                // Muscle fiber striations like the anatomical manikin
+                ctx.strokeStyle = noiseColorHex;
+                for (let i = 0; i < 420; i++) {
+                    const y = Math.random() * 512;
+                    ctx.globalAlpha = 0.08 + Math.random() * 0.16;
+                    ctx.lineWidth = 1 + Math.random() * 2.2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.bezierCurveTo(170, y + (Math.random() - 0.5) * 14, 340, y + (Math.random() - 0.5) * 14, 512, y);
+                    ctx.stroke();
+                }
+            } else {
+                // Organic mottled cellular / vascular surface texture
+                for (let i = 0; i < 650; i++) {
+                    const x = Math.random() * 512;
+                    const y = Math.random() * 512;
+                    const r = (4 + Math.random() * 22) * scale;
+                    ctx.globalAlpha = 0.04 + Math.random() * 0.07;
+                    ctx.fillStyle = noiseColorHex;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // Subtle capillaries
+                ctx.strokeStyle = noiseColorHex;
+                for (let i = 0; i < 45; i++) {
+                    let x = Math.random() * 512;
+                    let y = Math.random() * 512;
+                    ctx.globalAlpha = 0.09;
+                    ctx.lineWidth = 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    for (let s = 0; s < 5; s++) {
+                        x += (Math.random() - 0.5) * 50;
+                        y += (Math.random() - 0.5) * 50;
+                        ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                }
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        }
+
+        function createBumpTexture(intensity = 0.25) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 0, 256, 256);
+
+            for (let i = 0; i < 500; i++) {
+                const x = Math.random() * 256;
+                const y = Math.random() * 256;
+                const r = 2 + Math.random() * 10;
+                const v = Math.floor(128 + (Math.random() - 0.5) * 255 * intensity);
+                ctx.fillStyle = `rgb(${v},${v},${v})`;
+                ctx.globalAlpha = 0.15;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createHepaticLobuleTexture(baseColorHex, borderColorHex) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = baseColorHex;
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Subtle hexagonal hepatic lobule network
+            const hexRadius = 18;
+            const dx = hexRadius * 1.732;
+            const dy = hexRadius * 1.5;
+            ctx.strokeStyle = borderColorHex;
+            ctx.lineWidth = 1.0;
+
+            for (let row = 0; row < 26; row++) {
+                for (let col = 0; col < 22; col++) {
+                    const cx = col * dx + (row % 2 === 0 ? 0 : dx * 0.5);
+                    const cy = row * dy;
+                    ctx.globalAlpha = 0.14;
+                    ctx.beginPath();
+                    for (let k = 0; k < 6; k++) {
+                        const angle = (Math.PI / 3) * k + Math.PI / 6;
+                        const px = cx + hexRadius * Math.cos(angle);
+                        const py = cy + hexRadius * Math.sin(angle);
+                        if (k === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+
+                    // Central vein dot
+                    ctx.globalAlpha = 0.18;
+                    ctx.fillStyle = '#2a0604';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 1.6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createMucosalFoldsTexture(baseColorHex, foldColorHex, frequency = 28) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = baseColorHex;
+            ctx.fillRect(0, 0, 512, 512);
+
+            for (let i = 0; i < frequency; i++) {
+                const x = (i / frequency) * 512;
+                const grad = ctx.createLinearGradient(x, 0, x + 512 / frequency, 0);
+                grad.addColorStop(0, foldColorHex);
+                grad.addColorStop(0.5, baseColorHex);
+                grad.addColorStop(1, foldColorHex);
+                ctx.globalAlpha = 0.35;
+                ctx.fillStyle = grad;
+                ctx.fillRect(x, 0, 512 / frequency, 512);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        /**
+         * ============================================================================
+         * CUSTOM SCULPTED 3D ANATOMICAL GEOMETRY BUILDERS
+         * ============================================================================
+         */
+        function createVariableTubeGeometry(curve, tubularSegments, radialSegments, radiusFn) {
+            const frames = curve.computeFrenetFrames(tubularSegments, false);
+            const vertices = [];
+            const uvs = [];
+            const indices = [];
+
+            const P = new THREE.Vector3();
+            const vertex = new THREE.Vector3();
+
+            // Generate tubular rings with variable anatomical radius
+            for (let i = 0; i <= tubularSegments; i++) {
+                const u = i / tubularSegments;
+                curve.getPointAt(u, P);
+                const N = frames.normals[i];
+                const B = frames.binormals[i];
+
+                for (let j = 0; j <= radialSegments; j++) {
+                    const v = j / radialSegments;
+                    const theta = v * Math.PI * 2;
+                    const r = Math.max(0.002, radiusFn(u, theta));
+
+                    const sin = Math.sin(theta);
+                    const cos = -Math.cos(theta);
+
+                    vertex.x = P.x + r * (cos * N.x + sin * B.x);
+                    vertex.y = P.y + r * (cos * N.y + sin * B.y);
+                    vertex.z = P.z + r * (cos * N.z + sin * B.z);
+
+                    vertices.push(vertex.x, vertex.y, vertex.z);
+                    uvs.push(u, v);
+                }
+            }
+
+            // Connect rings with outward-facing triangles
+            for (let i = 1; i <= tubularSegments; i++) {
+                for (let j = 1; j <= radialSegments; j++) {
+                    const a = (radialSegments + 1) * (i - 1) + (j - 1);
+                    const b = (radialSegments + 1) * i + (j - 1);
+                    const c = (radialSegments + 1) * i + j;
+                    const d = (radialSegments + 1) * (i - 1) + j;
+
+                    indices.push(a, b, d);
+                    indices.push(b, c, d);
+                }
+            }
+
+            // Cap start and end openings smoothly
+            const startCenter = curve.getPointAt(0);
+            const startCenterIdx = vertices.length / 3;
+            vertices.push(startCenter.x, startCenter.y, startCenter.z);
+            uvs.push(0, 0.5);
+            for (let j = 0; j < radialSegments; j++) {
+                indices.push(startCenterIdx, j + 1, j);
+            }
+
+            const endCenter = curve.getPointAt(1);
+            const endCenterIdx = vertices.length / 3;
+            vertices.push(endCenter.x, endCenter.y, endCenter.z);
+            uvs.push(1, 0.5);
+            const lastRingStart = (radialSegments + 1) * tubularSegments;
+            for (let j = 0; j < radialSegments; j++) {
+                indices.push(endCenterIdx, lastRingStart + j, lastRingStart + j + 1);
+            }
+
+            const geom = new THREE.BufferGeometry();
+            geom.setIndex(indices);
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geom.computeVertexNormals();
+            return geom;
+        }
+
+        // 1. KERONGKONGAN (ESOPHAGUS) - Muscular striations, upper/lower sphincters & internal mucosal folds
+        function buildEsophagus() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const curve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.0, 5.2, -0.55),
+                new THREE.Vector3(0.02, 4.1, -0.52),
+                new THREE.Vector3(0.08, 3.0, -0.45),
+                new THREE.Vector3(0.18, 2.2, -0.25),
+                new THREE.Vector3(0.32, 1.85, 0.08)
+            ]);
+
+            // Outer muscular wall with longitudinal fiber ridges
+            const geom = createVariableTubeGeometry(curve, 64, 24, (u, theta) => {
+                const peristalsis = Math.sin(u * Math.PI * 12) * 0.009;
+                const longitudinalMuscle = Math.cos(theta * 14) * 0.005;
+                return 0.195 + peristalsis + longitudinalMuscle;
+            });
+            const mat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#df7c78', '#a63e3a', true, 0.8),
+                bumpMap: createBumpTexture(0.24),
+                bumpScale: 0.02,
+                roughness: 0.42,
+                metalness: 0.05
+            });
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.userData.organId = 'esophagus';
+            group.add(mesh);
+            meshes.push(mesh);
+            materials.push(mat);
+
+            // Upper & Lower Esophageal Sphincter Rings (UES & LES)
+            const sphincterMat = new THREE.MeshStandardMaterial({
+                color: '#c95b57',
+                roughness: 0.38
+            });
+            materials.push(sphincterMat);
+
+            [0.08, 0.94].forEach(uPos => {
+                const pt = curve.getPointAt(uPos);
+                const tangent = curve.getTangentAt(uPos);
+                const ringGeom = new THREE.TorusGeometry(0.21, 0.036, 12, 24);
+                const ringMesh = new THREE.Mesh(ringGeom, sphincterMat);
+                ringMesh.position.copy(pt);
+                ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+                ringMesh.userData.organId = 'esophagus';
+                group.add(ringMesh);
+                meshes.push(ringMesh);
+            });
+
+            // Internal Longitudinal Mucosal Folds (Visible in Cutaway / X-Ray)
+            const innerGeom = createVariableTubeGeometry(curve, 56, 20, (u, theta) => {
+                return 0.11 + Math.cos(theta * 6) * 0.028;
+            });
+            const innerMat = new THREE.MeshStandardMaterial({
+                color: '#f7a6a1',
+                roughness: 0.32
+            });
+            const innerMesh = new THREE.Mesh(innerGeom, innerMat);
+            innerMesh.userData.organId = 'esophagus';
+            innerMesh.userData.isInternal = true;
+            group.add(innerMesh);
+            meshes.push(innerMesh);
+            materials.push(innerMat);
+
+            return { group, materials, meshes };
+        }
+
+        // 2. HATI (LIVER) - 4 Anatomical Lobes (Right, Left, Caudate, Quadrate), Ligaments & Porta Hepatis Vessels
+        function buildLiver() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const geom = new THREE.SphereGeometry(1.5, 72, 56);
+            const pos = geom.attributes.position;
+            const v = new THREE.Vector3();
+
+            for (let i = 0; i < pos.count; i++) {
+                v.fromBufferAttribute(pos, i);
+                const nx = v.x / 1.5;
+                const ny = v.y / 1.5;
+                const nz = v.z / 1.5;
+
+                let x = nx * 1.68 - 0.35;
+                let y = ny * 0.88;
+                let z = nz * 0.84;
+
+                if (nx > -0.1) {
+                    const taper = Math.max(0.14, 1.0 - (nx + 0.1) * 0.72);
+                    y *= taper;
+                    z *= (0.45 + 0.55 * taper);
+                    if (ny < 0) {
+                        y += (nx + 0.1) * 0.56;
+                    }
+                } else {
+                    y *= 1.14;
+                    if (ny < 0) {
+                        // Renal & colic visceral impressions on underside of right lobe
+                        y += 0.16 * (1 - Math.abs(nz));
+                    }
+                }
+
+                // Diaphragmatic superior dome
+                y += 0.26 * (1 - nx * nx) * (ny > 0 ? 1 : 0.3);
+                // Anterior convex contour
+                z += 0.28 * (1 - nx * nx * 0.65) - 0.15 * ny * ny;
+
+                // Deep falciform & umbilical fissure separating Right & Left lobes
+                const fissure = Math.exp(-Math.pow((nx - 0.04) * 11, 2)) * 0.085;
+                z -= (nz > 0 ? fissure : fissure * 0.5);
+                if (ny < 0) y += fissure * 0.8;
+
+                pos.setXYZ(i, x, y + 1.38, z + 0.42);
+            }
+            geom.computeVertexNormals();
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createHepaticLobuleTexture('#611a12', '#3b0c07'),
+                bumpMap: createBumpTexture(0.18),
+                bumpScale: 0.015,
+                roughness: 0.25,
+                metalness: 0.08
+            });
+
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.userData.organId = 'liver';
+            group.add(mesh);
+            meshes.push(mesh);
+            materials.push(mat);
+
+            // Caudate & Quadrate Lobes on Visceral Underside (Visible when rotated or exploded)
+            const accessoryLobeMat = new THREE.MeshStandardMaterial({
+                map: createHepaticLobuleTexture('#6e2017', '#420e09'),
+                roughness: 0.28
+            });
+            materials.push(accessoryLobeMat);
+
+            // Lobus Kuadratus (Quadrate Lobe - anterior visceral between gallbladder & round ligament)
+            const quadGeom = new THREE.SphereGeometry(0.32, 24, 18);
+            quadGeom.scale(0.85, 0.45, 1.15);
+            const quadMesh = new THREE.Mesh(quadGeom, accessoryLobeMat);
+            quadMesh.position.set(-0.48, 0.88, 0.62);
+            quadMesh.userData.organId = 'liver';
+            group.add(quadMesh);
+            meshes.push(quadMesh);
+
+            // Lobus Kaudatus (Caudate Lobe - posterior visceral near IVC)
+            const caudGeom = new THREE.SphereGeometry(0.28, 24, 18);
+            caudGeom.scale(0.75, 0.65, 0.85);
+            const caudMesh = new THREE.Mesh(caudGeom, accessoryLobeMat);
+            caudMesh.position.set(-0.42, 1.15, -0.05);
+            caudMesh.userData.organId = 'liver';
+            group.add(caudMesh);
+            meshes.push(caudMesh);
+
+            // Falciform Ligament, Coronary Ligament & Ligamentum Teres Hepatis
+            const ligMat = new THREE.MeshStandardMaterial({ color: '#f5ebe4', roughness: 0.38 });
+            materials.push(ligMat);
+
+            const ligCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.22, 2.12, 0.86),
+                new THREE.Vector3(-0.26, 1.55, 1.19),
+                new THREE.Vector3(-0.30, 0.92, 1.04),
+                new THREE.Vector3(-0.34, 0.68, 0.92) // Ligamentum Teres tip
+            ]);
+            const ligMesh = new THREE.Mesh(
+                createVariableTubeGeometry(ligCurve, 28, 10, (u) => 0.022 + (u > 0.7 ? 0.015 : 0)),
+                ligMat
+            );
+            ligMesh.userData.organId = 'liver';
+            group.add(ligMesh);
+            meshes.push(ligMesh);
+
+            // Coronary Ligament across superior diaphragmatic surface
+            const corCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-1.35, 1.95, 0.25),
+                new THREE.Vector3(-0.35, 2.25, 0.45),
+                new THREE.Vector3(0.75, 1.88, 0.35)
+            ]);
+            const corMesh = new THREE.Mesh(new THREE.TubeGeometry(corCurve, 24, 0.022, 8, false), ligMat);
+            corMesh.userData.organId = 'liver';
+            group.add(corMesh);
+            meshes.push(corMesh);
+
+            // Porta Hepatis Triad Vessels on Underside (Hepatic Portal Vein + Hepatic Artery)
+            const portalVeinMat = new THREE.MeshStandardMaterial({ color: '#476996', roughness: 0.35 });
+            const hepaticArtMat = new THREE.MeshStandardMaterial({ color: '#c93838', roughness: 0.35 });
+            materials.push(portalVeinMat, hepaticArtMat);
+
+            const pvCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.25, 0.38, 0.02),
+                new THREE.Vector3(-0.42, 0.78, 0.22),
+                new THREE.Vector3(-0.55, 1.05, 0.28)
+            ]);
+            const pvMesh = new THREE.Mesh(new THREE.TubeGeometry(pvCurve, 18, 0.068, 10, false), portalVeinMat);
+            pvMesh.userData.organId = 'liver';
+            group.add(pvMesh);
+            meshes.push(pvMesh);
+
+            const haCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.12, 0.42, 0.06),
+                new THREE.Vector3(-0.34, 0.80, 0.26),
+                new THREE.Vector3(-0.48, 1.06, 0.32)
+            ]);
+            const haMesh = new THREE.Mesh(new THREE.TubeGeometry(haCurve, 18, 0.042, 10, false), hepaticArtMat);
+            haMesh.userData.organId = 'liver';
+            group.add(haMesh);
+            meshes.push(haMesh);
+
+            return { group, materials, meshes };
+        }
+
+        // 3. KANTUNG & SALURAN EMPEDU (GALLBLADDER & EXTRAHEPATIC BILIARY TREE)
+        function buildGallbladder() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#3e8e38', '#22571e', false, 0.7),
+                bumpMap: createBumpTexture(0.18),
+                bumpScale: 0.015,
+                roughness: 0.28,
+                metalness: 0.06
+            });
+            const ductMat = new THREE.MeshStandardMaterial({
+                color: '#4ea347',
+                roughness: 0.32
+            });
+            materials.push(mat, ductMat);
+
+            // Gallbladder Body (Fundus -> Corpus -> Neck)
+            const gbCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.66, 1.05, 0.36), // Neck (Kollum)
+                new THREE.Vector3(-0.82, 0.84, 0.62), // Corpus
+                new THREE.Vector3(-0.96, 0.61, 0.88)  // Fundus peeking under liver
+            ]);
+            const gbGeom = createVariableTubeGeometry(gbCurve, 32, 22, (u) => {
+                return 0.055 + Math.sin(Math.pow(u, 0.68) * Math.PI) * 0.165;
+            });
+            const gbMesh = new THREE.Mesh(gbGeom, mat);
+            gbMesh.userData.organId = 'gallbladder';
+            group.add(gbMesh);
+            meshes.push(gbMesh);
+
+            // Cystic Duct with Spiral Valves of Heister
+            const cysCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.66, 1.05, 0.36),
+                new THREE.Vector3(-0.56, 0.98, 0.24),
+                new THREE.Vector3(-0.46, 0.85, 0.18)
+            ]);
+            const cysGeom = createVariableTubeGeometry(cysCurve, 24, 12, (u) => 0.036 + Math.sin(u * Math.PI * 10) * 0.007);
+            const cysMesh = new THREE.Mesh(cysGeom, ductMat);
+            cysMesh.userData.organId = 'gallbladder';
+            group.add(cysMesh);
+            meshes.push(cysMesh);
+
+            // Left & Right Hepatic Ducts joining Common Hepatic Duct -> Common Bile Duct (Duktus Koledokus)
+            const rightHepCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.68, 1.25, 0.22),
+                new THREE.Vector3(-0.48, 1.06, 0.20)
+            ]);
+            const leftHepCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.22, 1.22, 0.24),
+                new THREE.Vector3(-0.48, 1.06, 0.20)
+            ]);
+            const commonBileCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.48, 1.06, 0.20),
+                new THREE.Vector3(-0.46, 0.85, 0.18),
+                new THREE.Vector3(-0.42, 0.52, 0.12),
+                new THREE.Vector3(-0.36, 0.26, 0.08) // Enters descending duodenum
+            ]);
+
+            [rightHepCurve, leftHepCurve, commonBileCurve].forEach(c => {
+                const m = new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.032, 10, false), ductMat);
+                m.userData.organId = 'gallbladder';
+                group.add(m);
+                meshes.push(m);
+            });
+
+            return { group, materials, meshes };
+        }
+
+        // 4. LAMBUNG (STOMACH) - Gastric Regions, Pyloric Sphincter, Gastric Vessels & Internal Gastric Rugae
+        function buildStomach() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const curve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.32, 1.88, 0.12),   // Cardia
+                new THREE.Vector3(0.88, 1.84, 0.25),   // Fundus dome
+                new THREE.Vector3(1.14, 1.32, 0.48),   // Corpus (Greater curvature)
+                new THREE.Vector3(0.95, 0.76, 0.64),   // Lower corpus
+                new THREE.Vector3(0.38, 0.55, 0.52),   // Pyloric antrum
+                new THREE.Vector3(-0.08, 0.62, 0.28)   // Pylorus
+            ]);
+
+            const geom = createVariableTubeGeometry(curve, 64, 32, (u, theta) => {
+                const envelope = Math.sin(Math.pow(u, 0.72) * Math.PI);
+                const baseR = 0.16 + 0.55 * envelope;
+                const flatten = 1.0 - 0.14 * Math.abs(Math.cos(theta));
+                return baseR * flatten;
+            });
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#f6cbb7', '#df967b', true, 1.0),
+                bumpMap: createBumpTexture(0.16),
+                bumpScale: 0.014,
+                roughness: 0.34,
+                metalness: 0.04
+            });
+
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.userData.organId = 'stomach';
+            group.add(mesh);
+            meshes.push(mesh);
+            materials.push(mat);
+
+            // Muscular Pyloric Sphincter Ring at Stomach-Duodenum Junction
+            const pylorusMat = new THREE.MeshStandardMaterial({ color: '#e69b80', roughness: 0.36 });
+            materials.push(pylorusMat);
+            const pylPt = curve.getPointAt(0.97);
+            const pylTan = curve.getTangentAt(0.97);
+            const pylMesh = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.042, 12, 24), pylorusMat);
+            pylMesh.position.copy(pylPt);
+            pylMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), pylTan);
+            pylMesh.userData.organId = 'stomach';
+            group.add(pylMesh);
+            meshes.push(pylMesh);
+
+            // Branching Gastric & Gastroepiploic Blood Vessels along Greater & Lesser Curvatures
+            const arteryMat = new THREE.MeshStandardMaterial({ color: '#c83232', roughness: 0.35 });
+            const veinMat = new THREE.MeshStandardMaterial({ color: '#3b649c', roughness: 0.35 });
+            materials.push(arteryMat, veinMat);
+
+            const greaterVesselCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(1.15, 1.72, 0.42),
+                new THREE.Vector3(1.48, 1.25, 0.65),
+                new THREE.Vector3(1.22, 0.62, 0.78),
+                new THREE.Vector3(0.45, 0.34, 0.64),
+                new THREE.Vector3(-0.02, 0.48, 0.38)
+            ]);
+            const gvMesh = new THREE.Mesh(new THREE.TubeGeometry(greaterVesselCurve, 36, 0.024, 8, false), arteryMat);
+            gvMesh.userData.organId = 'stomach';
+            group.add(gvMesh);
+            meshes.push(gvMesh);
+
+            const lesserVesselCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.35, 1.75, 0.25),
+                new THREE.Vector3(0.55, 1.32, 0.42),
+                new THREE.Vector3(0.38, 0.88, 0.46),
+                new THREE.Vector3(0.02, 0.74, 0.34)
+            ]);
+            const lvMesh = new THREE.Mesh(new THREE.TubeGeometry(lesserVesselCurve, 28, 0.02, 8, false), veinMat);
+            lvMesh.userData.organId = 'stomach';
+            group.add(lvMesh);
+            meshes.push(lvMesh);
+
+            // Fine vascular branches across anterior stomach wall
+            for (let b = 0; b < 5; b++) {
+                const t = 0.2 + b * 0.14;
+                const pStart = greaterVesselCurve.getPointAt(t);
+                const pEnd = lesserVesselCurve.getPointAt(Math.min(0.95, t));
+                const pMid = pStart.clone().lerp(pEnd, 0.55);
+                pMid.z += 0.24;
+                const branchCurve = new THREE.CatmullRomCurve3([pStart, pMid]);
+                const bMesh = new THREE.Mesh(
+                    createVariableTubeGeometry(branchCurve, 12, 6, (u) => 0.016 * (1 - u * 0.7)),
+                    b % 2 === 0 ? arteryMat : veinMat
+                );
+                bMesh.userData.organId = 'stomach';
+                group.add(bMesh);
+                meshes.push(bMesh);
+            }
+
+            // Internal Gastric Rugae (Longitudinal mucosal folds visible in Cutaway / X-Ray mode)
+            const rugaeMat = new THREE.MeshStandardMaterial({
+                map: createMucosalFoldsTexture('#e37b74', '#b84b44', 18),
+                roughness: 0.3
+            });
+            materials.push(rugaeMat);
+            const rugaeGeom = createVariableTubeGeometry(curve, 52, 24, (u, theta) => {
+                const envelope = Math.sin(Math.pow(u, 0.72) * Math.PI);
+                const baseR = 0.09 + 0.36 * envelope;
+                const fold = Math.cos(theta * 9 + u * 8) * 0.032 * envelope;
+                return baseR + fold;
+            });
+            const rugaeMesh = new THREE.Mesh(rugaeGeom, rugaeMat);
+            rugaeMesh.userData.organId = 'stomach';
+            rugaeMesh.userData.isInternal = true;
+            group.add(rugaeMesh);
+            meshes.push(rugaeMesh);
+
+            return { group, materials, meshes };
+        }
+
+        // 5. PANKREAS, DUODENUM & LIMPA (PANCREAS, DUODENUM & SPLEEN)
+        function buildPancreasAndDuodenum() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            // 4-Part C-Shaped Duodenum (Superior, Descending, Horizontal, Ascending)
+            const duoCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.08, 0.62, 0.25),
+                new THREE.Vector3(-0.42, 0.54, 0.14),
+                new THREE.Vector3(-0.48, 0.12, 0.06),
+                new THREE.Vector3(-0.20, -0.18, 0.06),
+                new THREE.Vector3(0.24, -0.04, 0.16)
+            ]);
+            const duoGeom = createVariableTubeGeometry(duoCurve, 48, 20, (u) => {
+                return 0.175 + Math.sin(u * Math.PI * 24) * 0.008;
+            });
+            const duoMat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#eab396', '#cf8967', false, 0.8),
+                roughness: 0.38
+            });
+            const duoMesh = new THREE.Mesh(duoGeom, duoMat);
+            duoMesh.userData.organId = 'pancreas';
+            group.add(duoMesh);
+            meshes.push(duoMesh);
+            materials.push(duoMat);
+
+            // Internal Duodenal Circular Folds (Plika Sirkularis)
+            const duoInnerGeom = createVariableTubeGeometry(duoCurve, 44, 16, (u) => {
+                return 0.105 + Math.sin(u * Math.PI * 30) * 0.022;
+            });
+            const duoInnerMat = new THREE.MeshStandardMaterial({ color: '#f29b82', roughness: 0.34 });
+            const duoInnerMesh = new THREE.Mesh(duoInnerGeom, duoInnerMat);
+            duoInnerMesh.userData.organId = 'pancreas';
+            duoInnerMesh.userData.isInternal = true;
+            group.add(duoInnerMesh);
+            meshes.push(duoInnerMesh);
+            materials.push(duoInnerMat);
+
+            // Sculpted Lobular Pancreas (Head/Kaput, Neck/Kollum, Body/Korpus, Tail/Kauda)
+            const panCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.24, 0.16, 0.06), // Kaput (Head inside C-loop)
+                new THREE.Vector3(0.14, 0.28, 0.02),  // Kollum (Neck)
+                new THREE.Vector3(0.64, 0.44, -0.06), // Korpus (Body)
+                new THREE.Vector3(1.16, 0.62, -0.18)  // Kauda (Tail reaching spleen)
+            ]);
+            const panGeom = createVariableTubeGeometry(panCurve, 56, 22, (u, theta) => {
+                const taper = 0.26 * (1.0 - 0.50 * u);
+                const lobules = 1.0 + 0.16 * Math.sin(u * 55) * Math.cos(theta * 6);
+                return taper * lobules;
+            });
+            const panMat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#ebaa5e', '#c4792b', false, 0.9),
+                bumpMap: createBumpTexture(0.42),
+                bumpScale: 0.035,
+                roughness: 0.44
+            });
+            const panMesh = new THREE.Mesh(panGeom, panMat);
+            panMesh.userData.organId = 'pancreas';
+            group.add(panMesh);
+            meshes.push(panMesh);
+            materials.push(panMat);
+
+            // Internal Main Pancreatic Duct (Duktus Wirsung) & Accessory Duct (Santorini)
+            const ductMat = new THREE.MeshStandardMaterial({
+                color: '#fffbeb',
+                emissive: '#fef3c7',
+                emissiveIntensity: 0.25,
+                roughness: 0.25
+            });
+            materials.push(ductMat);
+
+            const wirsungCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(1.10, 0.60, -0.16),
+                new THREE.Vector3(0.62, 0.43, -0.05),
+                new THREE.Vector3(0.14, 0.27, 0.02),
+                new THREE.Vector3(-0.22, 0.18, 0.06),
+                new THREE.Vector3(-0.42, 0.22, 0.07) // Ampulla of Vater in descending duodenum
+            ]);
+            const wirsungMesh = new THREE.Mesh(
+                createVariableTubeGeometry(wirsungCurve, 36, 10, (u) => 0.018 + u * 0.018),
+                ductMat
+            );
+            wirsungMesh.userData.organId = 'pancreas';
+            wirsungMesh.userData.isInternal = true;
+            group.add(wirsungMesh);
+            meshes.push(wirsungMesh);
+
+            // Spleen (Limpa) tucked behind stomach fundus at the tail of the pancreas
+            const spleenGeom = new THREE.SphereGeometry(0.46, 28, 22);
+            spleenGeom.scale(0.68, 1.18, 0.85);
+            const spleenMat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#7a2234', '#4d101d', false, 0.8),
+                roughness: 0.3
+            });
+            const spleenMesh = new THREE.Mesh(spleenGeom, spleenMat);
+            spleenMesh.position.set(1.36, 0.92, -0.25);
+            spleenMesh.rotation.set(0.2, -0.3, -0.35);
+            spleenMesh.userData.organId = 'pancreas';
+            group.add(spleenMesh);
+            meshes.push(spleenMesh);
+            materials.push(spleenMat);
+
+            return { group, materials, meshes };
+        }
+
+        // 6. USUS HALUS (SMALL INTESTINE) - Jejunum-Ileum Gradient, Plika Sirkularis & Mesenteric Vascular Arcade
+        function buildSmallIntestine() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const pts = [
+                new THREE.Vector3(0.22, -0.05, 0.18),
+                new THREE.Vector3(-0.25, -0.18, 0.55),
+                new THREE.Vector3(-0.78, -0.25, 0.72),
+                new THREE.Vector3(-0.82, -0.52, 0.85),
+                new THREE.Vector3(-0.15, -0.45, 0.92),
+                new THREE.Vector3(0.55, -0.35, 0.86),
+                new THREE.Vector3(0.85, -0.55, 0.74),
+                new THREE.Vector3(0.65, -0.82, 0.88),
+                new THREE.Vector3(-0.05, -0.75, 0.96),
+                new THREE.Vector3(-0.72, -0.82, 0.84),
+                new THREE.Vector3(-0.85, -1.12, 0.72),
+                new THREE.Vector3(-0.22, -1.08, 0.94),
+                new THREE.Vector3(0.45, -1.05, 0.92),
+                new THREE.Vector3(0.82, -1.25, 0.75),
+                new THREE.Vector3(0.42, -1.48, 0.88),
+                new THREE.Vector3(-0.28, -1.42, 0.95),
+                new THREE.Vector3(-0.74, -1.52, 0.76),
+                new THREE.Vector3(-0.48, -1.82, 0.82),
+                new THREE.Vector3(0.18, -1.78, 0.90),
+                new THREE.Vector3(0.62, -1.88, 0.72),
+                new THREE.Vector3(0.25, -2.18, 0.78),
+                new THREE.Vector3(-0.22, -2.25, 0.75),
+                new THREE.Vector3(-0.15, -2.52, 0.62),
+                new THREE.Vector3(0.15, -2.58, 0.56),
+                new THREE.Vector3(-0.35, -2.25, 0.45),
+                new THREE.Vector3(-0.88, -2.05, 0.42) // Ileocecal junction
+            ];
+
+            const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.45);
+            // Taper gently from thicker Jejunum (u=0) to narrower Ileum (u=1) with subtle circular fold ripples
+            const geom = createVariableTubeGeometry(curve, 420, 20, (u) => {
+                const jejunumToIleum = 0.225 - 0.032 * u;
+                const plicaRipple = 0.008 * Math.sin(u * Math.PI * 160);
+                return jejunumToIleum + plicaRipple;
+            });
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createMucosalFoldsTexture('#f4b798', '#d98a66', 42),
+                bumpMap: createBumpTexture(0.22),
+                bumpScale: 0.016,
+                roughness: 0.35,
+                metalness: 0.03
+            });
+
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.userData.organId = 'small_intestine';
+            group.add(mesh);
+            meshes.push(mesh);
+            materials.push(mat);
+
+            // Superior Mesenteric Artery & Vein Arcade fanning from root of mesentery to intestinal loops
+            const mesArtMat = new THREE.MeshStandardMaterial({ color: '#c93434', roughness: 0.35 });
+            const mesVeinMat = new THREE.MeshStandardMaterial({ color: '#396096', roughness: 0.35 });
+            materials.push(mesArtMat, mesVeinMat);
+
+            const mesRoot = new THREE.Vector3(0.0, -0.35, 0.18);
+            for (let i = 0; i < 12; i++) {
+                const u = 0.06 + (i / 12) * 0.88;
+                const loopPt = curve.getPointAt(u);
+                const midPt = mesRoot.clone().lerp(loopPt, 0.55);
+                midPt.z -= 0.08;
+                const vCurve = new THREE.CatmullRomCurve3([mesRoot, midPt, loopPt]);
+                const vGeom = createVariableTubeGeometry(vCurve, 14, 6, (t) => 0.024 * (1 - t * 0.65));
+                const vMesh = new THREE.Mesh(vGeom, i % 2 === 0 ? mesArtMat : mesVeinMat);
+                vMesh.userData.organId = 'small_intestine';
+                group.add(vMesh);
+                meshes.push(vMesh);
+            }
+
+            // Internal Plika Sirkularis & Vili Lumen (Visible in Cutaway / X-Ray mode)
+            const innerGeom = createVariableTubeGeometry(curve, 360, 14, (u) => {
+                return (0.125 - 0.02 * u) + 0.022 * Math.sin(u * Math.PI * 180);
+            });
+            const innerMat = new THREE.MeshStandardMaterial({ color: '#e8836b', roughness: 0.3 });
+            const innerMesh = new THREE.Mesh(innerGeom, innerMat);
+            innerMesh.userData.organId = 'small_intestine';
+            innerMesh.userData.isInternal = true;
+            group.add(innerMesh);
+            meshes.push(innerMesh);
+            materials.push(innerMat);
+
+            return { group, materials, meshes };
+        }
+
+        // 7. USUS BESAR (LARGE INTESTINE / COLON) - Haustra, 3 Taeniae Coli & Appendices Epiploicae
+        function buildLargeIntestine() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const colonCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-1.12, -2.02, 0.45), // Cecum top
+                new THREE.Vector3(-1.18, -1.25, 0.56), // Ascending colon
+                new THREE.Vector3(-1.14, -0.35, 0.65), // Hepatic flexure
+                new THREE.Vector3(-0.55, -0.08, 0.86), // Transverse colon right
+                new THREE.Vector3(0.10, -0.14, 0.92),  // Transverse colon center
+                new THREE.Vector3(0.75, 0.02, 0.82),   // Transverse colon left
+                new THREE.Vector3(1.16, 0.22, 0.55),   // Splenic flexure
+                new THREE.Vector3(1.18, -0.75, 0.52),  // Descending colon upper
+                new THREE.Vector3(1.12, -1.68, 0.52),  // Descending colon lower
+                new THREE.Vector3(0.72, -2.28, 0.45),  // Sigmoid colon
+                new THREE.Vector3(0.18, -2.55, 0.22)   // Rectosigmoid junction
+            ], false, 'catmullrom', 0.35);
+
+            const geom = createVariableTubeGeometry(colonCurve, 260, 26, (u, theta) => {
+                const baseRadius = 0.335 - 0.06 * u;
+                const haustra = 1.0 + 0.155 * Math.abs(Math.sin(u * Math.PI * 36));
+                // 3 longitudinal indentations for Taeniae Coli (120 degrees apart)
+                const taenia3 = 1.0 - 0.055 * Math.pow(Math.max(0, Math.cos(theta * 3)), 3);
+                return baseRadius * haustra * taenia3;
+            });
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#93918f', '#666361', false, 0.9),
+                bumpMap: createBumpTexture(0.26),
+                bumpScale: 0.024,
+                roughness: 0.42,
+                metalness: 0.05
+            });
+
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.userData.organId = 'large_intestine';
+            group.add(mesh);
+            meshes.push(mesh);
+            materials.push(mat);
+
+            // All 3 Longitudinal Muscular Ribbons (Taeniae Coli: Libera, Mesocolica, Omentalis)
+            const taeniaMat = new THREE.MeshStandardMaterial({ color: '#c2bfbc', roughness: 0.46 });
+            materials.push(taeniaMat);
+
+            const frames = colonCurve.computeFrenetFrames(90, false);
+            [0, (Math.PI * 2) / 3, (Math.PI * 4) / 3].forEach(angleOffset => {
+                const tPts = [];
+                for (let i = 0; i <= 90; i++) {
+                    const u = i / 90;
+                    const pt = colonCurve.getPointAt(u);
+                    const N = frames.normals[i];
+                    const B = frames.binormals[i];
+                    const r = 0.32 - 0.06 * u;
+                    const cos = -Math.cos(angleOffset);
+                    const sin = Math.sin(angleOffset);
+                    pt.x += r * (cos * N.x + sin * B.x);
+                    pt.y += r * (cos * N.y + sin * B.y);
+                    pt.z += r * (cos * N.z + sin * B.z);
+                    tPts.push(pt);
+                }
+                const tMesh = new THREE.Mesh(
+                    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tPts), 90, 0.026, 8, false),
+                    taeniaMat
+                );
+                tMesh.userData.organId = 'large_intestine';
+                group.add(tMesh);
+                meshes.push(tMesh);
+            });
+
+            // Appendices Epiploicae (Characteristic small fat-filled peritoneal pouches along colon)
+            const epiMat = new THREE.MeshStandardMaterial({ color: '#e6d39c', roughness: 0.38 });
+            materials.push(epiMat);
+            const epiGeom = new THREE.SphereGeometry(0.065, 10, 8);
+            epiGeom.scale(0.8, 1.35, 0.75);
+
+            for (let i = 2; i < 34; i++) {
+                const u = i / 36;
+                const pt = colonCurve.getPointAt(u);
+                const N = frames.normals[Math.floor(u * 90)];
+                const B = frames.binormals[Math.floor(u * 90)];
+                const sideAngle = (i % 2 === 0 ? 0.8 : -0.8) + Math.PI * 0.5;
+                const r = 0.35 - 0.06 * u;
+
+                const epiMesh = new THREE.Mesh(epiGeom, epiMat);
+                epiMesh.position.set(
+                    pt.x + r * (-Math.cos(sideAngle) * N.x + Math.sin(sideAngle) * B.x),
+                    pt.y + r * (-Math.cos(sideAngle) * N.y + Math.sin(sideAngle) * B.y),
+                    pt.z + r * (-Math.cos(sideAngle) * N.z + Math.sin(sideAngle) * B.z)
+                );
+                epiMesh.rotation.set(i * 0.5, i * 0.7, 0.4);
+                epiMesh.userData.organId = 'large_intestine';
+                group.add(epiMesh);
+                meshes.push(epiMesh);
+            }
+
+            // Internal Semilunar Mucosal Folds (Plika Semilunaris visible in Cutaway / X-Ray mode)
+            const innerGeom = createVariableTubeGeometry(colonCurve, 180, 18, (u) => {
+                return (0.21 - 0.04 * u) - 0.035 * Math.abs(Math.sin(u * Math.PI * 36));
+            });
+            const innerMat = new THREE.MeshStandardMaterial({ color: '#b59d98', roughness: 0.36 });
+            const innerMesh = new THREE.Mesh(innerGeom, innerMat);
+            innerMesh.userData.organId = 'large_intestine';
+            innerMesh.userData.isInternal = true;
+            group.add(innerMesh);
+            meshes.push(innerMesh);
+            materials.push(innerMat);
+
+            return { group, materials, meshes };
+        }
+
+        // 8. SEKUM, USUS BUNTU (APENDIKS) & REKTUM (CECUM, ILEOCECAL VALVE, APPENDIX, RECTUM & ANAL SPHINCTERS)
+        function buildAppendixAndRectum() {
+            const group = new THREE.Group();
+            const meshes = [];
+            const materials = [];
+
+            const mat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#858280', '#5e5b59', false, 0.8),
+                bumpMap: createBumpTexture(0.22),
+                bumpScale: 0.02,
+                roughness: 0.44
+            });
+            materials.push(mat);
+
+            // Cecum Pouch
+            const cecumGeom = new THREE.SphereGeometry(0.36, 28, 22);
+            cecumGeom.scale(1.0, 1.18, 0.95);
+            const cecumMesh = new THREE.Mesh(cecumGeom, mat);
+            cecumMesh.position.set(-1.12, -2.12, 0.44);
+            cecumMesh.userData.organId = 'appendix_rectum';
+            group.add(cecumMesh);
+            meshes.push(cecumMesh);
+
+            // Internal Ileocecal Valve (Katup Ileosekal at junction of ileum & cecum)
+            const valveMat = new THREE.MeshStandardMaterial({ color: '#e89687', roughness: 0.32 });
+            materials.push(valveMat);
+            const valveMesh = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 12, 20), valveMat);
+            valveMesh.position.set(-0.92, -2.05, 0.43);
+            valveMesh.rotation.y = Math.PI * 0.45;
+            valveMesh.userData.organId = 'appendix_rectum';
+            valveMesh.userData.isInternal = true;
+            group.add(valveMesh);
+            meshes.push(valveMesh);
+
+            // Vermiform Appendix & Mesoappendix
+            const appCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-1.15, -2.38, 0.42),
+                new THREE.Vector3(-1.26, -2.62, 0.36),
+                new THREE.Vector3(-1.05, -2.84, 0.28),
+                new THREE.Vector3(-0.84, -2.76, 0.22)
+            ]);
+            const appGeom = createVariableTubeGeometry(appCurve, 32, 14, (u) => 0.068 * (1 - 0.35 * u));
+            const appMesh = new THREE.Mesh(appGeom, mat);
+            appMesh.userData.organId = 'appendix_rectum';
+            group.add(appMesh);
+            meshes.push(appMesh);
+
+            // Rectum with Transverse Rectal Folds (Katup Houston)
+            const recCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.18, -2.55, 0.22),
+                new THREE.Vector3(0.05, -2.86, 0.04),
+                new THREE.Vector3(0.0, -3.18, -0.06),
+                new THREE.Vector3(0.0, -3.45, -0.14)
+            ]);
+            const recGeom = createVariableTubeGeometry(recCurve, 36, 18, (u) => {
+                const ampulla = Math.sin(u * Math.PI) * 0.045;
+                return (0.23 - 0.06 * u) + ampulla;
+            });
+            const recMesh = new THREE.Mesh(recGeom, mat);
+            recMesh.userData.organId = 'appendix_rectum';
+            group.add(recMesh);
+            meshes.push(recMesh);
+
+            // External & Internal Anal Sphincter Muscle Rings
+            const sphincterMat = new THREE.MeshStandardMaterial({ color: '#b55650', roughness: 0.42 });
+            materials.push(sphincterMat);
+            [0.82, 0.94].forEach((uPos, idx) => {
+                const pt = recCurve.getPointAt(uPos);
+                const tan = recCurve.getTangentAt(uPos);
+                const sMesh = new THREE.Mesh(new THREE.TorusGeometry(0.19 - idx * 0.02, 0.038, 12, 22), sphincterMat);
+                sMesh.position.copy(pt);
+                sMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tan);
+                sMesh.userData.organId = 'appendix_rectum';
+                group.add(sMesh);
+                meshes.push(sMesh);
+            });
+
+            return { group, materials, meshes };
+        }
+
+        /**
+         * ============================================================================
+         * CONTEXTUAL ANATOMICAL MANIKIN FRAME (TORSO, MUSCLES, LUNGS, HEART)
+         * ============================================================================
+         */
+        function buildTorsoContext() {
+            const group = new THREE.Group();
+
+            const muscleTex = createOrganicTexture('#c85c3d', '#8c3119', true, 1.0);
+            const muscleMat = new THREE.MeshStandardMaterial({
+                map: muscleTex,
+                bumpMap: createBumpTexture(0.2),
+                bumpScale: 0.02,
+                roughness: 0.48,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.95
+            });
+
+            const fasciaMat = new THREE.MeshStandardMaterial({
+                color: '#f2e8e1',
+                roughness: 0.4,
+                transparent: true,
+                opacity: 0.95
+            });
+
+            // 1. Posterior / Lateral Torso Shell (Open anatomical cavity rim)
+            const shellGeom = new THREE.CylinderGeometry(2.15, 1.72, 7.6, 48, 24, true, Math.PI * 0.68, Math.PI * 1.64);
+            const pos = shellGeom.attributes.position;
+            const v = new THREE.Vector3();
+            for (let i = 0; i < pos.count; i++) {
+                v.fromBufferAttribute(pos, i);
+                // Flatten front-to-back like human torso & widen at shoulders
+                const yNorm = (v.y + 3.8) / 7.6; // 0 bottom -> 1 top
+                const shoulderFlare = 1.0 + 0.28 * Math.pow(yNorm, 2);
+                v.x *= shoulderFlare * 1.08;
+                v.z *= 0.68;
+                // Natural lumbar lordosis & thoracic kyphosis curve
+                v.z += Math.sin(yNorm * Math.PI) * 0.22;
+                pos.setXYZ(i, v.x, v.y + 0.65, v.z - 0.15);
+            }
+            shellGeom.computeVertexNormals();
+            const shellMesh = new THREE.Mesh(shellGeom, muscleMat);
+            group.add(shellMesh);
+
+            // 2. Cut-edge white fascia/rib border framing the open thoracic & abdominal window
+            const leftRimPts = [
+                new THREE.Vector3(-1.15, 4.15, 0.35),
+                new THREE.Vector3(-1.72, 3.10, 0.68),
+                new THREE.Vector3(-1.78, 1.55, 0.82),
+                new THREE.Vector3(-1.62, -0.35, 0.78),
+                new THREE.Vector3(-1.45, -2.15, 0.62),
+                new THREE.Vector3(-0.35, -3.22, 0.42),
+                new THREE.Vector3(0.0, -3.32, 0.38)
+            ];
+            const rightRimPts = leftRimPts.map(p => new THREE.Vector3(-p.x, p.y, p.z));
+
+            const leftRimGeom = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(leftRimPts), 40, 0.11, 10, false);
+            const rightRimGeom = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rightRimPts), 40, 0.11, 10, false);
+            group.add(new THREE.Mesh(leftRimGeom, fasciaMat));
+            group.add(new THREE.Mesh(rightRimGeom, fasciaMat));
+
+            // 3. Deltoid / Shoulder Caps (matching exposed muscles in reference image)
+            [-1, 1].forEach(side => {
+                const deltGeom = new THREE.SphereGeometry(0.95, 24, 20);
+                deltGeom.scale(0.85, 1.35, 0.85);
+                const deltMesh = new THREE.Mesh(deltGeom, muscleMat);
+                deltMesh.position.set(side * 2.25, 3.65, -0.15);
+                deltMesh.rotation.z = side * -0.25;
+                group.add(deltMesh);
+            });
+
+            // 4. Trachea & Thyroid Cartilage (Blue-grey structure at top neck in reference photo)
+            const trachMat = new THREE.MeshStandardMaterial({
+                color: '#798da3',
+                roughness: 0.38,
+                transparent: true,
+                opacity: 0.95
+            });
+            const trachGeom = new THREE.CylinderGeometry(0.22, 0.24, 1.45, 20);
+            const trachMesh = new THREE.Mesh(trachGeom, trachMat);
+            trachMesh.position.set(0, 4.45, 0.15);
+            group.add(trachMesh);
+
+            // Hyoid / Thyroid Y-bar seen at top of chest in photo
+            const barCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.95, 4.45, 0.42),
+                new THREE.Vector3(-0.22, 4.18, 0.45),
+                new THREE.Vector3(0.22, 4.18, 0.45),
+                new THREE.Vector3(0.95, 4.45, 0.42)
+            ]);
+            group.add(new THREE.Mesh(new THREE.TubeGeometry(barCurve, 24, 0.11, 10, false), trachMat));
+
+            // 5. Left & Right Lungs (Pinkish-grey textured lobes above the diaphragm)
+            const lungMat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#c88b84', '#8f5953', false, 0.7),
+                bumpMap: createBumpTexture(0.22),
+                bumpScale: 0.02,
+                roughness: 0.45,
+                transparent: true,
+                opacity: 0.95
+            });
+
+            [-1, 1].forEach(side => {
+                const lungGeom = new THREE.SphereGeometry(1.15, 32, 28);
+                const lPos = lungGeom.attributes.position;
+                const lv = new THREE.Vector3();
+                for (let i = 0; i < lPos.count; i++) {
+                    lv.fromBufferAttribute(lPos, i);
+                    // Cone-like apex at top, broad base resting on diaphragm
+                    const ny = lv.y / 1.15;
+                    const taper = 0.45 + 0.55 * (1 - (ny + 1) * 0.42);
+                    lv.x *= 0.68 * taper;
+                    lv.y *= 1.38;
+                    lv.z *= 0.78 * taper;
+                    // Medial cardiac notch on right side of viewer (anatomical left lung)
+                    if (side === 1 && lv.x < 0 && lv.y < 0.2) {
+                        lv.x += 0.28;
+                    }
+                    lPos.setXYZ(i, lv.x, lv.y, lv.z);
+                }
+                lungGeom.computeVertexNormals();
+                const lungMesh = new THREE.Mesh(lungGeom, lungMat);
+                lungMesh.position.set(side * 0.86, 2.85, 0.35);
+                lungMesh.rotation.z = side * -0.06;
+                group.add(lungMesh);
+            });
+
+            // 6. Heart (Tucked between the lungs above the diaphragm)
+            const heartMat = new THREE.MeshStandardMaterial({
+                map: createOrganicTexture('#d9664e', '#9c3420', false, 0.8),
+                roughness: 0.32,
+                transparent: true,
+                opacity: 0.95
+            });
+            const heartGeom = new THREE.SphereGeometry(0.58, 28, 24);
+            heartGeom.scale(0.88, 1.18, 0.85);
+            const heartMesh = new THREE.Mesh(heartGeom, heartMat);
+            heartMesh.position.set(0.14, 2.75, 0.48);
+            heartMesh.rotation.z = -0.35;
+            group.add(heartMesh);
+
+            // 7. Diaphragm Dome separating chest and abdominal organs
+            const diaphMat = new THREE.MeshStandardMaterial({
+                color: '#d98873',
+                roughness: 0.45,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.88
+            });
+            const diaphGeom = new THREE.SphereGeometry(1.55, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.42);
+            diaphGeom.scale(1.05, 0.42, 0.68);
+            const diaphMesh = new THREE.Mesh(diaphGeom, diaphMat);
+            diaphMesh.position.set(0, 1.65, 0.25);
+            group.add(diaphMesh);
+
+            group.userData.materials = [muscleMat, fasciaMat, trachMat, lungMat, heartMat, diaphMat];
+            return group;
+        }
+
+        /**
+         * ============================================================================
+         * SCENE INITIALIZATION & LIGHTING
+         * ============================================================================
+         */
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
+            updateCameraTransform(true);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.08;
+            container.appendChild(renderer.domElement);
+
+            // Studio Anatomical Lighting (Soft medical studio key, fill, and rim light)
+            const ambientLight = new THREE.AmbientLight(0xfff5ee, 0.55);
+            scene.add(ambientLight);
+
+            const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
+            keyLight.position.set(4.5, 7.5, 8.0);
+            scene.add(keyLight);
+
+            const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.45);
+            fillLight.position.set(-6.0, 2.0, 5.5);
+            scene.add(fillLight);
+
+            const rimLight = new THREE.DirectionalLight(0xfde68a, 0.42);
+            rimLight.position.set(0.0, 5.0, -7.0);
+            scene.add(rimLight);
+
+            // Groups
+            mainGroup = new THREE.Group();
+            scene.add(mainGroup);
+
+            digestiveGroup = new THREE.Group();
+            mainGroup.add(digestiveGroup);
+
+            // Build Torso Context
+            torsoGroup = buildTorsoContext();
+            mainGroup.add(torsoGroup);
+
+            // Build All 8 Digestive Organs
+            const builders = {
+                esophagus: buildEsophagus,
+                liver: buildLiver,
+                gallbladder: buildGallbladder,
+                stomach: buildStomach,
+                pancreas: buildPancreasAndDuodenum,
+                small_intestine: buildSmallIntestine,
+                large_intestine: buildLargeIntestine,
+                appendix_rectum: buildAppendixAndRectum
+            };
+
+            ORGANS_DATA.forEach(data => {
+                const built = builders[data.id]();
+                built.group.userData.basePos = built.group.position.clone();
+                built.group.userData.explodeOffset = data.explodeOffset.clone();
+                digestiveGroup.add(built.group);
+
+                organMeshes[data.id] = built.group;
+                organMaterials[data.id] = built.materials;
+                built.meshes.forEach(m => clickableMeshes.push(m));
+            });
+
+            // Build Digestive Simulation Bolus & Pathway Curve
+            buildDigestiveSimulationPath();
+
+            // Raycaster
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Build UI Elements
+            buildOrganListUI();
+            buildPinElements();
+            selectOrgan('liver', false);
+
+            // Event Listeners
+            setupInteractions();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildDigestiveSimulationPath() {
+            simCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.0, 5.0, -0.52),    // 1. Esophagus top
+                new THREE.Vector3(0.15, 2.6, -0.32),   // Esophagus mid
+                new THREE.Vector3(0.32, 1.85, 0.12),   // Cardia
+                new THREE.Vector3(0.95, 1.35, 0.48),   // 2. Stomach body
+                new THREE.Vector3(0.45, 0.62, 0.52),   // Stomach antrum
+                new THREE.Vector3(-0.35, 0.45, 0.12),  // 3. Duodenum
+                new THREE.Vector3(-0.25, -0.25, 0.65), // 4. Small intestine upper
+                new THREE.Vector3(0.45, -0.65, 0.85),  // Small intestine mid
+                new THREE.Vector3(-0.45, -1.15, 0.85), // Small intestine lower
+                new THREE.Vector3(0.25, -1.75, 0.82),  // Ileum
+                new THREE.Vector3(-1.12, -2.02, 0.45), // 5. Cecum (Large intestine start)
+                new THREE.Vector3(-1.15, -0.45, 0.65), // Ascending colon
+                new THREE.Vector3(0.05, -0.12, 0.90),  // Transverse colon
+                new THREE.Vector3(1.15, -0.45, 0.52),  // Descending colon
+                new THREE.Vector3(0.72, -2.28, 0.45),  // Sigmoid colon
+                new THREE.Vector3(0.0, -3.25, -0.10)   // 6. Rectum
+            ]);
+
+            const bolusGeom = new THREE.SphereGeometry(0.18, 20, 20);
+            const bolusMat = new THREE.MeshStandardMaterial({
+                color: 0xfbbf24,
+                emissive: 0xf59e0b,
+                emissiveIntensity: 1.4,
+                roughness: 0.2
+            });
+            bolusMesh = new THREE.Mesh(bolusGeom, bolusMat);
+            bolusMesh.visible = false;
+
+            // Glowing aura around bolus
+            const haloGeom = new THREE.SphereGeometry(0.32, 16, 16);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xfef08a,
+                transparent: true,
+                opacity: 0.35
+            });
+            bolusMesh.add(new THREE.Mesh(haloGeom, haloMat));
+            digestiveGroup.add(bolusMesh);
+        }
+
+        /**
+         * ============================================================================
+         * UI BUILDERS & INTERACTIVE CONTROLS
+         * ============================================================================
+         */
+        function buildOrganListUI() {
+            const container = document.getElementById('organ-list-content');
+            container.innerHTML = '';
+
+            ORGANS_DATA.forEach(org => {
+                const btn = document.createElement('button');
+                btn.id = `list-btn-${org.id}`;
+                btn.onclick = () => selectOrgan(org.id, true);
+                btn.className = 'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-slate-300 hover:bg-slate-800/80 transition-all';
+                btn.innerHTML = `
+                    <span class="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 text-white shadow-sm" style="background-color: ${org.colorHex}">
+                        ${org.pin}
+                    </span>
+                    <span class="truncate">${org.name}</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        function buildPinElements() {
+            const layer = document.getElementById('pins-layer');
+            layer.innerHTML = '';
+
+            ORGANS_DATA.forEach(org => {
+                const pin = document.createElement('button');
+                pin.className = 'organ-pin';
+                pin.textContent = org.pin;
+                pin.title = `${org.pin}. ${org.name}`;
+                pin.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectOrgan(org.id, true);
+                });
+                pin.addEventListener('mouseenter', () => setHoveredOrgan(org.id));
+                pin.addEventListener('mouseleave', () => setHoveredOrgan(null));
+                layer.appendChild(pin);
+                pinElements[org.id] = pin;
+            });
+        }
+
+        function selectOrgan(id, focusCamera = false) {
+            selectedOrganId = id;
+            const data = ORGANS_DATA.find(o => o.id === id);
+            if (!data) return;
+
+            // Update Detail Panel
+            const panel = document.getElementById('detail-panel');
+            panel.classList.remove('translate-y-[120%]', 'opacity-0', 'pointer-events-none');
+
+            document.getElementById('detail-badge').textContent = data.pin;
+            document.getElementById('detail-badge').style.backgroundColor = data.colorHex;
+            document.getElementById('detail-badge').style.color = '#ffffff';
+            document.getElementById('detail-category').textContent = data.category;
+            document.getElementById('detail-title').textContent = data.name;
+            document.getElementById('detail-desc').textContent = data.description;
+            document.getElementById('detail-enzyme').textContent = data.enzyme;
+            document.getElementById('detail-location').textContent = data.location;
+
+            const partsContainer = document.getElementById('detail-parts');
+            if (partsContainer && data.parts) {
+                partsContainer.innerHTML = data.parts.map(p =>
+                    `<span class="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700/70 text-[11px] font-medium text-slate-200">${p}</span>`
+                ).join('');
+            }
+
+            const fnList = document.getElementById('detail-functions');
+            fnList.innerHTML = data.functions.map(f => `<li>${f}</li>`).join('');
+
+            // Update List Active State
+            ORGANS_DATA.forEach(org => {
+                const btn = document.getElementById(`list-btn-${org.id}`);
+                const pin = pinElements[org.id];
+                if (org.id === id) {
+                    btn.classList.add('bg-sky-500/20', 'text-white', 'border', 'border-sky-500/40');
+                    if (pin) pin.classList.add('active');
+                } else {
+                    btn.classList.remove('bg-sky-500/20', 'text-white', 'border', 'border-sky-500/40');
+                    if (pin) pin.classList.remove('active');
+                }
+            });
+
+            // Auto-explode slightly if pancreas or esophagus is selected in normal mode so user can clearly see it
+            if ((id === 'pancreas' || id === 'esophagus') && currentViewMode === 'normal') {
+                setViewMode('exploded');
+            }
+
+            if (focusCamera) {
+                const targetPos = data.pinOffset.clone().addScaledVector(data.explodeOffset, targetExplodeFactor);
+                targetLookAt.lerp(targetPos, 0.55);
+            }
+
+            updateOrganMaterials();
+        }
+
+        function deselectOrgan() {
+            selectedOrganId = null;
+            const panel = document.getElementById('detail-panel');
+            panel.classList.add('translate-y-[120%]', 'opacity-0', 'pointer-events-none');
+
+            ORGANS_DATA.forEach(org => {
+                const btn = document.getElementById(`list-btn-${org.id}`);
+                const pin = pinElements[org.id];
+                if (btn) btn.classList.remove('bg-sky-500/20', 'text-white', 'border', 'border-sky-500/40');
+                if (pin) pin.classList.remove('active');
+            });
+
+            updateOrganMaterials();
+        }
+
+        function setHoveredOrgan(id) {
+            if (hoveredOrganId === id) return;
+            hoveredOrganId = id;
+            document.body.style.cursor = id ? 'pointer' : 'grab';
+            updateOrganMaterials();
+        }
+
+        function updateOrganMaterials() {
+            const isXray = currentViewMode === 'xray';
+            const isCutaway = currentViewMode === 'cutaway';
+
+            ORGANS_DATA.forEach(org => {
+                const isSelected = org.id === selectedOrganId;
+                const isHovered = org.id === hoveredOrganId;
+                const group = organMeshes[org.id];
+                if (!group) return;
+
+                group.traverse(child => {
+                    if (!child.isMesh || !child.material) return;
+                    const mat = child.material;
+                    const isInternal = Boolean(child.userData.isInternal);
+
+                    if (isCutaway) {
+                        if (isInternal) {
+                            mat.transparent = false;
+                            mat.opacity = 1.0;
+                            mat.depthWrite = true;
+                            mat.emissive = new THREE.Color(isSelected ? 0x38bdf8 : 0xf59e0b);
+                            mat.emissiveIntensity = isSelected ? 0.35 : 0.15;
+                        } else {
+                            mat.transparent = true;
+                            mat.opacity = isSelected ? 0.28 : 0.18;
+                            mat.depthWrite = false;
+                            mat.emissive = new THREE.Color(isSelected ? 0x38bdf8 : 0x000000);
+                            mat.emissiveIntensity = isSelected ? 0.2 : 0;
+                        }
+                    } else {
+                        mat.depthWrite = true;
+                        if (isSelected) {
+                            mat.emissive = new THREE.Color(0x38bdf8);
+                            mat.emissiveIntensity = 0.26;
+                            mat.transparent = isXray && !isInternal;
+                            mat.opacity = (isXray && !isInternal) ? 0.72 : 1.0;
+                        } else if (isHovered) {
+                            mat.emissive = new THREE.Color(0xfbbf24);
+                            mat.emissiveIntensity = 0.22;
+                            mat.transparent = isXray;
+                            mat.opacity = isXray ? 0.85 : 1.0;
+                        } else {
+                            mat.emissive = new THREE.Color(0x000000);
+                            mat.emissiveIntensity = 0;
+                            mat.transparent = isXray;
+                            mat.opacity = isXray ? (isInternal ? 0.75 : 0.32) : 1.0;
+                        }
+                    }
+                    mat.needsUpdate = true;
+                });
+            });
+
+            // Torso translucency in X-Ray or Cutaway mode
+            if (torsoGroup && torsoGroup.userData.materials) {
+                const translucentTorso = isXray || isCutaway;
+                torsoGroup.userData.materials.forEach(m => {
+                    m.opacity = translucentTorso ? 0.20 : 0.95;
+                    m.depthWrite = !translucentTorso;
+                });
+            }
+        }
+
+        function setViewMode(mode) {
+            currentViewMode = mode;
+
+            // Update button styling
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove('bg-sky-500', 'text-slate-950', 'shadow');
+                btn.classList.add('text-slate-300');
+            });
+            const activeBtn = document.getElementById(`btn-mode-${mode}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-sky-500', 'text-slate-950', 'shadow');
+                activeBtn.classList.remove('text-slate-300');
+            }
+
+            targetExplodeFactor = (mode === 'exploded') ? 1.0 : 0.0;
+            updateOrganMaterials();
+        }
+
+        function toggleDigestiveSim() {
+            simActive = !simActive;
+            const banner = document.getElementById('sim-banner');
+            const btn = document.getElementById('btn-sim-flow');
+            const dot = document.getElementById('sim-dot');
+
+            if (simActive) {
+                simProgress = 0;
+                bolusMesh.visible = true;
+                banner.classList.remove('hidden');
+                btn.classList.add('bg-amber-500', 'text-slate-950');
+                btn.classList.remove('text-amber-300', 'bg-amber-500/15');
+                dot.classList.replace('bg-amber-400', 'bg-slate-950');
+                if (currentViewMode === 'normal') {
+                    setViewMode('xray');
+                }
+            } else {
+                bolusMesh.visible = false;
+                banner.classList.add('hidden');
+                btn.classList.remove('bg-amber-500', 'text-slate-950');
+                btn.classList.add('text-amber-300', 'bg-amber-500/15');
+                dot.classList.replace('bg-slate-950', 'bg-amber-400');
+                setViewMode('normal');
+            }
+        }
+
+        function toggleTorsoContext(visible) {
+            showTorso = visible;
+            if (torsoGroup) torsoGroup.visible = visible;
+        }
+
+        function togglePinsVisibility(visible) {
+            showPins = visible;
+            document.getElementById('pins-layer').style.display = visible ? 'block' : 'none';
+        }
+
+        function toggleOrganList() {
+            organListExpanded = !organListExpanded;
+            const content = document.getElementById('organ-list-content');
+            const layers = document.getElementById('layer-controls');
+            const chevron = document.getElementById('organ-list-chevron');
+
+            if (organListExpanded) {
+                content.classList.remove('hidden');
+                layers.classList.remove('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+            } else {
+                content.classList.add('hidden');
+                layers.classList.add('hidden');
+                chevron.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        function resetCamera() {
+            targetSpherical = { radius: 13.5, theta: 0.08, phi: 1.48 };
+            targetLookAt.set(0, 0.25, 0);
+        }
+
+        function focusDigestiveOnly() {
+            targetSpherical = { radius: 9.2, theta: 0.05, phi: 1.52 };
+            targetLookAt.set(0, -0.35, 0.45);
+        }
+
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+            const btn = document.getElementById('btn-autorotate');
+            if (autoRotate) {
+                btn.classList.add('bg-emerald-500/20', 'text-emerald-300', 'border', 'border-emerald-500/40');
+            } else {
+                btn.classList.remove('bg-emerald-500/20', 'text-emerald-300', 'border', 'border-emerald-500/40');
+            }
+        }
+
+        /**
+         * ============================================================================
+         * CAMERA ORBIT, PAN, ZOOM & RAYCAST INTERACTION HANDLERS
+         * ============================================================================
+         */
+        function updateCameraTransform(immediate = false) {
+            const lerpFactor = immediate ? 1.0 : 0.12;
+            currentSpherical.radius += (targetSpherical.radius - currentSpherical.radius) * lerpFactor;
+            currentSpherical.theta += (targetSpherical.theta - currentSpherical.theta) * lerpFactor;
+            currentSpherical.phi += (targetSpherical.phi - currentSpherical.phi) * lerpFactor;
+            currentLookAt.lerp(targetLookAt, lerpFactor);
+
+            const sinPhi = Math.sin(currentSpherical.phi);
+            camera.position.x = currentLookAt.x + currentSpherical.radius * sinPhi * Math.sin(currentSpherical.theta);
+            camera.position.y = currentLookAt.y + currentSpherical.radius * Math.cos(currentSpherical.phi);
+            camera.position.z = currentLookAt.z + currentSpherical.radius * sinPhi * Math.cos(currentSpherical.theta);
+            camera.lookAt(currentLookAt);
+        }
+
+        function setupInteractions() {
+            const dom = renderer.domElement;
+
+            // Mouse Down
+            dom.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                isPanning = (e.button === 2 || e.shiftKey);
+                prevPointer = { x: e.clientX, y: e.clientY };
+                pointerDownPos = { x: e.clientX, y: e.clientY };
+                document.body.style.cursor = 'grabbing';
+            });
+
+            // Mouse Move
+            window.addEventListener('mousemove', (e) => {
+                // Update hover tooltip & raycast
+                const tooltip = document.getElementById('hover-tooltip');
+                if (!isDragging) {
+                    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                    raycaster.setFromCamera(mouse, camera);
+                    const hits = raycaster.intersectObjects(clickableMeshes, false);
+                    if (hits.length > 0 && hits[0].object.userData.organId) {
+                        const hitId = hits[0].object.userData.organId;
+                        setHoveredOrgan(hitId);
+                        const org = ORGANS_DATA.find(o => o.id === hitId);
+                        if (org) {
+                            document.getElementById('tooltip-num').textContent = org.pin;
+                            document.getElementById('tooltip-name').textContent = org.name;
+                            tooltip.style.left = `${e.clientX + 14}px`;
+                            tooltip.style.top = `${e.clientY + 14}px`;
+                            tooltip.classList.remove('hidden');
+                        }
+                    } else {
+                        setHoveredOrgan(null);
+                        tooltip.classList.add('hidden');
+                    }
+                    return;
+                }
+
+                tooltip.classList.add('hidden');
+                const dx = e.clientX - prevPointer.x;
+                const dy = e.clientY - prevPointer.y;
+                prevPointer = { x: e.clientX, y: e.clientY };
+
+                if (isPanning) {
+                    const panSpeed = currentSpherical.radius * 0.0012;
+                    targetLookAt.x -= dx * panSpeed;
+                    targetLookAt.y += dy * panSpeed;
+                } else {
+                    targetSpherical.theta -= dx * 0.0065;
+                    targetSpherical.phi = Math.max(0.25, Math.min(Math.PI - 0.25, targetSpherical.phi - dy * 0.0065));
+                }
+            });
+
+            // Mouse Up (Detect click vs drag)
+            window.addEventListener('mouseup', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                document.body.style.cursor = hoveredOrganId ? 'pointer' : 'grab';
+
+                const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+                if (dist < 6) {
+                    handleTapSelection(e.clientX, e.clientY);
+                }
+            });
+
+            // Prevent context menu on right-drag pan
+            dom.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            // Wheel Zoom
+            dom.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                targetSpherical.radius = Math.max(4.5, Math.min(22.0, targetSpherical.radius + e.deltaY * 0.008));
+            }, { passive: false });
+
+            // Touch Support (Orbit + Pinch Zoom + Tap)
+            dom.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    prevPointer = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    pointerDownPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                } else if (e.touches.length === 2) {
+                    isDragging = false;
+                    initialPinchDist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    initialPinchRadius = targetSpherical.radius;
+                }
+            }, { passive: false });
+
+            dom.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1 && isDragging) {
+                    const dx = e.touches[0].clientX - prevPointer.x;
+                    const dy = e.touches[0].clientY - prevPointer.y;
+                    prevPointer = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+                    targetSpherical.theta -= dx * 0.0075;
+                    targetSpherical.phi = Math.max(0.25, Math.min(Math.PI - 0.25, targetSpherical.phi - dy * 0.0075));
+                } else if (e.touches.length === 2 && initialPinchDist) {
+                    const currentDist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    const ratio = initialPinchDist / Math.max(10, currentDist);
+                    targetSpherical.radius = Math.max(4.5, Math.min(22.0, initialPinchRadius * ratio));
+                }
+            }, { passive: false });
+
+            dom.addEventListener('touchend', (e) => {
+                if (isDragging && e.changedTouches.length > 0) {
+                    const t = e.changedTouches[0];
+                    const dist = Math.hypot(t.clientX - pointerDownPos.x, t.clientY - pointerDownPos.y);
+                    if (dist < 10) {
+                        handleTapSelection(t.clientX, t.clientY);
+                    }
+                }
+                isDragging = false;
+                initialPinchDist = null;
+            });
+        }
+
+        function handleTapSelection(clientX, clientY) {
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(clickableMeshes, false);
+            if (hits.length > 0 && hits[0].object.userData.organId) {
+                selectOrgan(hits[0].object.userData.organId, false);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /**
+         * ============================================================================
+         * PROJECTED 2D PIN UPDATER & ANIMATION LOOP
+         * ============================================================================
+         */
+        function updateProjectedPins() {
+            if (!showPins) return;
+
+            const tempVec = new THREE.Vector3();
+            ORGANS_DATA.forEach(org => {
+                const pin = pinElements[org.id];
+                const group = organMeshes[org.id];
+                if (!pin || !group) return;
+
+                tempVec.copy(org.pinOffset).add(group.position);
+                tempVec.project(camera);
+
+                // Hide if behind camera
+                if (tempVec.z > 1) {
+                    pin.style.display = 'none';
+                    return;
+                }
+
+                const x = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(tempVec.y * 0.5) + 0.5) * window.innerHeight;
+
+                pin.style.display = 'flex';
+                pin.style.left = `${x}px`;
+                pin.style.top = `${y}px`;
+            });
+        }
+
+        function updateSimulationStep(delta) {
+            if (!simActive || !simCurve || !bolusMesh) return;
+
+            simProgress += delta * 0.065;
+            if (simProgress > 1) simProgress = 0;
+
+            const pt = simCurve.getPointAt(simProgress);
+            // Offset bolus with exploded view if active
+            bolusMesh.position.copy(pt);
+            bolusMesh.position.z += explodeFactor * 1.1;
+
+            // Update banner text according to current stage
+            const titleEl = document.getElementById('sim-stage-title');
+            const descEl = document.getElementById('sim-stage-desc');
+            const barEl = document.getElementById('sim-progress');
+
+            barEl.style.width = `${Math.round(simProgress * 100)}%`;
+
+            if (simProgress < 0.16) {
+                titleEl.textContent = '1. Kerongkongan (Esofagus)';
+                descEl.textContent = 'Gerakan peristaltik mendorong bolus makanan turun melewati rongga dada menuju lambung.';
+            } else if (simProgress < 0.34) {
+                titleEl.textContent = '2. Lambung (Gaster)';
+                descEl.textContent = 'Makanan diaduk menjadi kimus dan dicerna oleh asam lambung (HCl) serta enzim pepsin.';
+            } else if (simProgress < 0.44) {
+                titleEl.textContent = '3. Duodenum, Hati & Pankreas';
+                descEl.textContent = 'Empedu dari hati mengemulsi lemak sementara enzim pankreas memecah karbohidrat & protein.';
+            } else if (simProgress < 0.72) {
+                titleEl.textContent = '4. Usus Halus (Jejunum & Ileum)';
+                descEl.textContent = 'Vili usus halus menyerap glukosa, asam amino, asam lemak, dan vitamin ke dalam aliran darah.';
+            } else {
+                titleEl.textContent = '5. Usus Besar (Kolon) & Rektum';
+                descEl.textContent = 'Penyerapan air dan mineral terjadi sepanjang kolon hingga sisa pencernaan dipadatkan menuju rektum.';
+            }
+        }
+
+        let lastTime = performance.now();
+
+        function animateLoop() {
+            requestAnimationFrame(animateLoop);
+
+            const now = performance.now();
+            const delta = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+
+            // Auto-rotate camera gently if enabled
+            if (autoRotate && !isDragging) {
+                targetSpherical.theta += delta * 0.45;
+            }
+
+            // Smooth Exploded View interpolation
+            explodeFactor += (targetExplodeFactor - explodeFactor) * 0.1;
+            ORGANS_DATA.forEach(org => {
+                const group = organMeshes[org.id];
+                if (group) {
+                    group.position.copy(group.userData.basePos).addScaledVector(group.userData.explodeOffset, explodeFactor);
+                }
+            });
+
+            // Update Digestive Simulation
+            updateSimulationStep(delta);
+
+            // Update Camera & Projected Pins
+            updateCameraTransform(false);
+            updateProjectedPins();
+
+            renderer.render(scene, camera);
+        }
+
+        // Start initialization & animation on window load
+        window.onload = function () {
+            initScene();
+            animateLoop();
+        };
+    </script>
+</body>
+</html>
